@@ -1,0 +1,233 @@
+openapi: 3.0.3
+info:
+  title: Export API
+  description: API for exporting transaction data to CSV format
+  version: 1.0.0
+  contact:
+    name: Expense Tracker Team
+
+servers:
+  - url: http://localhost:3000/api
+    description: Local development
+  - url: https://expense-tracker.vercel.app/api
+    description: Production
+
+paths:
+  /export:
+    get:
+      summary: Export transactions to CSV
+      description: Export transactions to CSV format with optional filters. Respects the same filters as transaction list endpoint. Returns a CSV file with proper escaping of special characters (commas, quotes, newlines). Maximum 10,000 transactions per export.
+      operationId: exportTransactions
+      tags:
+        - Export
+      security:
+        - supabaseAuth: []
+      parameters:
+        - name: search
+          in: query
+          description: Search term to filter transactions by description (case-insensitive, partial match)
+          schema:
+            type: string
+            maxLength: 100
+        - name: category_id
+          in: query
+          description: Filter by category UUID (use 'uncategorized' for transactions without a category)
+          schema:
+            type: string
+            format: uuid
+        - name: type
+          in: query
+          description: Filter by transaction type
+          schema:
+            type: string
+            enum: [income, expense]
+        - name: start_date
+          in: query
+          description: Filter transactions on or after this date (ISO 8601 format)
+          schema:
+            type: string
+            format: date-time
+        - name: end_date
+          in: query
+          description: Filter transactions before this date (ISO 8601 format)
+          schema:
+            type: string
+            format: date-time
+        - name: format
+          in: query
+          description: Export format (currently only CSV supported)
+          schema:
+            type: string
+            enum: [csv]
+            default: csv
+      responses:
+        '200':
+          description: Successfully generated CSV export
+          headers:
+            Content-Disposition:
+              description: Attachment filename with current date
+              schema:
+                type: string
+                example: 'attachment; filename="transactions-2026-02-11.csv"'
+            Content-Type:
+              description: MIME type for CSV
+              schema:
+                type: string
+                example: 'text/csv; charset=utf-8'
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+                description: CSV file content with UTF-8 encoding
+              example: |
+                Date,Description,Amount,Type,Category
+                2026-02-11,Grocery shopping at Whole Foods,125.50,expense,Food
+                2026-02-10,Monthly salary,5000.00,income,Salary
+                2026-02-09,"Coffee at ""Joe's"" (with quote)",4.50,expense,Food
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '413':
+          description: Export size exceeds maximum limit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "PAYLOAD_TOO_LARGE"
+                message: "Export exceeds maximum of 10,000 transactions. Please apply filters to reduce the result set."
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  securitySchemes:
+    supabaseAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Supabase JWT token from auth.getSession()
+
+  schemas:
+    Error:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: Error code or type
+          example: "VALIDATION_ERROR"
+        message:
+          type: string
+          description: Human-readable error message
+          example: "Invalid date format"
+        details:
+          type: object
+          description: Additional error details
+          additionalProperties: true
+
+  responses:
+    BadRequest:
+      description: Invalid request parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "VALIDATION_ERROR"
+            message: "Invalid date format"
+            details:
+              start_date: ["Must be a valid ISO 8601 date"]
+
+    Unauthorized:
+      description: Authentication required or invalid token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "UNAUTHORIZED"
+            message: "Authentication required"
+
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "INTERNAL_SERVER_ERROR"
+            message: "An unexpected error occurred"
+
+# CSV Export Specification
+x-csv-format:
+  encoding: UTF-8
+  delimiter: ","
+  line_ending: "\n"
+  quote_character: '"'
+  escape_character: '"'
+  include_bom: false
+  
+  columns:
+    - name: Date
+      description: Transaction date in YYYY-MM-DD format (user's local timezone)
+      format: YYYY-MM-DD
+      example: "2026-02-11"
+    
+    - name: Description
+      description: Transaction description (properly escaped if contains commas, quotes, or newlines)
+      format: string
+      escaping: RFC 4180
+      example: "Grocery shopping"
+    
+    - name: Amount
+      description: Transaction amount with 2 decimal places
+      format: decimal(12,2)
+      example: "125.50"
+    
+    - name: Type
+      description: Transaction type
+      format: string
+      enum: [income, expense]
+      example: "expense"
+    
+    - name: Category
+      description: Category name or 'Uncategorized' if no category assigned
+      format: string
+      example: "Food"
+  
+  escaping_rules:
+    - rule: Field contains comma
+      action: Wrap field in double quotes
+      example_input: 'Coffee, tea, and snacks'
+      example_output: '"Coffee, tea, and snacks"'
+    
+    - rule: Field contains double quote
+      action: Wrap field in double quotes and escape internal quotes by doubling them
+      example_input: 'Coffee at "Joe\'s Cafe"'
+      example_output: '"Coffee at ""Joe\'s Cafe"""'
+    
+    - rule: Field contains newline
+      action: Wrap field in double quotes and preserve newline
+      example_input: "Line 1\nLine 2"
+      example_output: '"Line 1\nLine 2"'
+    
+    - rule: Field contains only whitespace or is empty
+      action: Output empty string (no quotes needed unless explicitly required)
+      example_input: ""
+      example_output: ""
+  
+  max_file_size: 10MB
+  max_rows: 10000
+  
+  example_file: |
+    Date,Description,Amount,Type,Category
+    2026-02-11,Grocery shopping at Whole Foods,125.50,expense,Food
+    2026-02-10,Monthly salary,5000.00,income,Salary
+    2026-02-09,"Coffee at ""Joe's"" (with quote)",4.50,expense,Food
+    2026-02-08,"Multi-line note
+    with newline",10.00,expense,Uncategorized
+    2026-02-07,Simple transaction,50.00,expense,Transport

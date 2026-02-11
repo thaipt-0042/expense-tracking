@@ -1,0 +1,219 @@
+openapi: 3.0.3
+info:
+  title: Dashboard API
+  description: API for retrieving dashboard statistics and aggregated transaction data
+  version: 1.0.0
+  contact:
+    name: Expense Tracker Team
+
+servers:
+  - url: http://localhost:3000/api
+    description: Local development
+  - url: https://expense-tracker.vercel.app/api
+    description: Production
+
+paths:
+  /dashboard:
+    get:
+      summary: Get dashboard statistics
+      description: Retrieve aggregated financial statistics for the authenticated user, filtered by time period (day, week, or month). Returns total income, total expenses, net balance, and category breakdown. Calculations performed in PostgreSQL for performance.
+      operationId: getDashboardStats
+      tags:
+        - Dashboard
+      security:
+        - supabaseAuth: []
+      parameters:
+        - name: period
+          in: query
+          description: Time period for filtering transactions
+          required: false
+          schema:
+            type: string
+            enum: [day, week, month]
+            default: month
+          examples:
+            day:
+              value: day
+              summary: Current calendar day (midnight to midnight in user's timezone)
+            week:
+              value: week
+              summary: Current week (Sunday to Saturday)
+            month:
+              value: month
+              summary: Current calendar month (1st to last day)
+        - name: date
+          in: query
+          description: Reference date for the period (ISO 8601 format). Defaults to current date if not provided. Used to calculate period boundaries (e.g., "show me stats for January 2026" by passing date=2026-01-15 with period=month).
+          required: false
+          schema:
+            type: string
+            format: date-time
+          example: "2026-02-11T00:00:00Z"
+      responses:
+        '200':
+          description: Successfully retrieved dashboard statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/DashboardStats'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  securitySchemes:
+    supabaseAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Supabase JWT token from auth.getSession()
+
+  schemas:
+    DashboardStats:
+      type: object
+      required:
+        - total_income
+        - total_expenses
+        - net_balance
+        - category_breakdown
+        - period
+        - start_date
+        - end_date
+      properties:
+        total_income:
+          type: number
+          format: decimal
+          description: Sum of all income transactions in the period
+          example: 5000.00
+        total_expenses:
+          type: number
+          format: decimal
+          description: Sum of all expense transactions in the period
+          example: 3200.50
+        net_balance:
+          type: number
+          format: decimal
+          description: Net balance (total income - total expenses). Can be negative if expenses exceed income.
+          example: 1799.50
+        category_breakdown:
+          type: array
+          description: Spending breakdown by category, ordered by total amount descending
+          items:
+            $ref: '#/components/schemas/CategoryBreakdown'
+        period:
+          type: string
+          enum: [day, week, month]
+          description: The time period used for filtering
+          example: "month"
+        start_date:
+          type: string
+          format: date-time
+          description: Start of the period (inclusive) in ISO 8601 format
+          example: "2026-02-01T00:00:00Z"
+        end_date:
+          type: string
+          format: date-time
+          description: End of the period (exclusive) in ISO 8601 format
+          example: "2026-03-01T00:00:00Z"
+
+    CategoryBreakdown:
+      type: object
+      required:
+        - category_id
+        - category_name
+        - category_color
+        - total_amount
+        - transaction_count
+      properties:
+        category_id:
+          type: string
+          description: Category UUID or 'uncategorized' for transactions without a category
+          example: "456e7890-e12b-34d5-a678-426614174111"
+        category_name:
+          type: string
+          description: Category name or 'Uncategorized'
+          example: "Food"
+        category_color:
+          type: string
+          pattern: '^#[0-9A-F]{6}$'
+          description: Category color as hex code (default #6B7280 for uncategorized)
+          example: "#10B981"
+        category_icon:
+          type: string
+          nullable: true
+          description: Category icon identifier (null for uncategorized)
+          example: "shopping-cart"
+        total_amount:
+          type: number
+          format: decimal
+          description: Total amount spent/earned in this category during the period
+          example: 850.00
+        transaction_count:
+          type: integer
+          description: Number of transactions in this category during the period
+          example: 15
+        percentage:
+          type: number
+          format: decimal
+          description: Percentage of total expenses (for expense categories only)
+          example: 26.56
+
+    Error:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: Error code or type
+          example: "VALIDATION_ERROR"
+        message:
+          type: string
+          description: Human-readable error message
+          example: "Invalid period parameter"
+        details:
+          type: object
+          description: Additional error details
+          additionalProperties: true
+
+  responses:
+    BadRequest:
+      description: Invalid request parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "VALIDATION_ERROR"
+            message: "Invalid period parameter"
+            details:
+              period: ["Must be one of: day, week, month"]
+
+    Unauthorized:
+      description: Authentication required or invalid token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "UNAUTHORIZED"
+            message: "Authentication required"
+
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "INTERNAL_SERVER_ERROR"
+            message: "An unexpected error occurred"

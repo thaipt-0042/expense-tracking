@@ -1,0 +1,353 @@
+openapi: 3.0.3
+info:
+  title: Categories API
+  description: API for managing transaction categories
+  version: 1.0.0
+  contact:
+    name: Expense Tracker Team
+
+servers:
+  - url: http://localhost:3000/api
+    description: Local development
+  - url: https://expense-tracker.vercel.app/api
+    description: Production
+
+paths:
+  /categories:
+    get:
+      summary: List categories
+      description: Retrieve all categories belonging to the authenticated user. Categories are returned in alphabetical order by name.
+      operationId: listCategories
+      tags:
+        - Categories
+      security:
+        - supabaseAuth: []
+      responses:
+        '200':
+          description: Successfully retrieved categories
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Category'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      summary: Create category
+      description: Create a new category for the authenticated user. Category name must be unique per user (enforced by database constraint).
+      operationId: createCategory
+      tags:
+        - Categories
+      security:
+        - supabaseAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategoryCreate'
+      responses:
+        '201':
+          description: Category created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Category'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Category name already exists for this user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "CONFLICT"
+                message: "A category with this name already exists"
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /categories/{id}:
+    get:
+      summary: Get category by ID
+      description: Retrieve a single category by its UUID. User can only access their own categories (enforced by RLS).
+      operationId: getCategory
+      tags:
+        - Categories
+      security:
+        - supabaseAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Category UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Successfully retrieved category
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Category'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    patch:
+      summary: Update category
+      description: Update an existing category. All fields are optional; only provided fields will be updated. User can only update their own categories (enforced by RLS).
+      operationId: updateCategory
+      tags:
+        - Categories
+      security:
+        - supabaseAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Category UUID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategoryUpdate'
+      responses:
+        '200':
+          description: Category updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Category'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Updated category name already exists for this user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "CONFLICT"
+                message: "A category with this name already exists"
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    delete:
+      summary: Delete category
+      description: Permanently delete a category. Associated transactions will have their category_id set to NULL (becomes uncategorized). User can only delete their own categories (enforced by RLS). This action cannot be undone.
+      operationId: deleteCategory
+      tags:
+        - Categories
+      security:
+        - supabaseAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Category UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Category deleted successfully (no content)
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  securitySchemes:
+    supabaseAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Supabase JWT token from auth.getSession()
+
+  schemas:
+    Category:
+      type: object
+      required:
+        - id
+        - user_id
+        - name
+        - color
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Category unique identifier
+          example: "456e7890-e12b-34d5-a678-426614174111"
+        user_id:
+          type: string
+          format: uuid
+          description: Owner user ID
+          example: "987e6543-e21b-32d1-a654-426614174999"
+        name:
+          type: string
+          minLength: 1
+          maxLength: 50
+          description: Category name (unique per user)
+          example: "Food"
+        color:
+          type: string
+          pattern: '^#[0-9A-F]{6}$'
+          description: Category color as hex code (uppercase)
+          example: "#10B981"
+        icon_id:
+          type: string
+          nullable: true
+          description: Icon identifier for UI rendering (optional)
+          example: "shopping-cart"
+        created_at:
+          type: string
+          format: date-time
+          description: Creation timestamp
+          example: "2026-02-11T10:30:00Z"
+
+    CategoryCreate:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 50
+          description: Category name (must be unique per user)
+          example: "Food"
+        color:
+          type: string
+          pattern: '^#[0-9A-F]{6}$'
+          description: Category color as hex code. Defaults to #6B7280 (gray) if not provided.
+          example: "#10B981"
+        icon_id:
+          type: string
+          nullable: true
+          description: Icon identifier for UI rendering (optional)
+          example: "shopping-cart"
+
+    CategoryUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 50
+          description: Updated category name (must remain unique per user)
+          example: "Groceries"
+        color:
+          type: string
+          pattern: '^#[0-9A-F]{6}$'
+          description: Updated category color as hex code
+          example: "#3B82F6"
+        icon_id:
+          type: string
+          nullable: true
+          description: Updated icon identifier (set to null to remove icon)
+          example: "credit-card"
+
+    Error:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: Error code or type
+          example: "VALIDATION_ERROR"
+        message:
+          type: string
+          description: Human-readable error message
+          example: "Category name must be between 1 and 50 characters"
+        details:
+          type: object
+          description: Additional error details (field-specific validation errors)
+          additionalProperties: true
+
+  responses:
+    BadRequest:
+      description: Invalid request parameters or validation error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "VALIDATION_ERROR"
+            message: "Invalid category data"
+            details:
+              name: ["Name must be between 1 and 50 characters"]
+              color: ["Color must be a valid hex code (e.g., #10B981)"]
+
+    Unauthorized:
+      description: Authentication required or invalid token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "UNAUTHORIZED"
+            message: "Authentication required"
+
+    NotFound:
+      description: Resource not found or user does not have access
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "NOT_FOUND"
+            message: "Category not found"
+
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "INTERNAL_SERVER_ERROR"
+            message: "An unexpected error occurred"
