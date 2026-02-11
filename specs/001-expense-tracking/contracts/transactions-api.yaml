@@ -1,0 +1,489 @@
+openapi: 3.0.3
+info:
+  title: Transactions API
+  description: API for managing financial transactions (income and expenses)
+  version: 1.0.0
+  contact:
+    name: Expense Tracker Team
+
+servers:
+  - url: http://localhost:3000/api
+    description: Local development
+  - url: https://expense-tracker.vercel.app/api
+    description: Production
+
+paths:
+  /transactions:
+    get:
+      summary: List transactions
+      description: Retrieve a paginated list of transactions with optional filters for search, category, type, and date range. Returns transactions belonging to the authenticated user only (enforced by RLS).
+      operationId: listTransactions
+      tags:
+        - Transactions
+      security:
+        - supabaseAuth: []
+      parameters:
+        - name: page
+          in: query
+          description: Page number for pagination (1-indexed)
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          description: Number of transactions per page
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: search
+          in: query
+          description: Search term to filter transactions by description (case-insensitive, partial match)
+          schema:
+            type: string
+            maxLength: 100
+        - name: category_id
+          in: query
+          description: Filter by category UUID (use 'uncategorized' for transactions without a category)
+          schema:
+            type: string
+            format: uuid
+        - name: type
+          in: query
+          description: Filter by transaction type
+          schema:
+            type: string
+            enum: [income, expense]
+        - name: start_date
+          in: query
+          description: Filter transactions on or after this date (ISO 8601 format)
+          schema:
+            type: string
+            format: date-time
+        - name: end_date
+          in: query
+          description: Filter transactions before this date (ISO 8601 format)
+          schema:
+            type: string
+            format: date-time
+        - name: sort
+          in: query
+          description: Sort field and direction
+          schema:
+            type: string
+            enum: [date_desc, date_asc, amount_desc, amount_asc]
+            default: date_desc
+      responses:
+        '200':
+          description: Successfully retrieved transactions
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - pagination
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Transaction'
+                  pagination:
+                    type: object
+                    required:
+                      - page
+                      - limit
+                      - total
+                      - totalPages
+                    properties:
+                      page:
+                        type: integer
+                        example: 1
+                      limit:
+                        type: integer
+                        example: 20
+                      total:
+                        type: integer
+                        example: 150
+                      totalPages:
+                        type: integer
+                        example: 8
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      summary: Create transaction
+      description: Create a new transaction for the authenticated user. Amount must be positive with up to 2 decimal places.
+      operationId: createTransaction
+      tags:
+        - Transactions
+      security:
+        - supabaseAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransactionCreate'
+      responses:
+        '201':
+          description: Transaction created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Transaction'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /transactions/{id}:
+    get:
+      summary: Get transaction by ID
+      description: Retrieve a single transaction by its UUID. User can only access their own transactions (enforced by RLS).
+      operationId: getTransaction
+      tags:
+        - Transactions
+      security:
+        - supabaseAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Transaction UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Successfully retrieved transaction
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Transaction'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    patch:
+      summary: Update transaction
+      description: Update an existing transaction. All fields are optional; only provided fields will be updated. User can only update their own transactions (enforced by RLS).
+      operationId: updateTransaction
+      tags:
+        - Transactions
+      security:
+        - supabaseAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Transaction UUID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransactionUpdate'
+      responses:
+        '200':
+          description: Transaction updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Transaction'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    delete:
+      summary: Delete transaction
+      description: Permanently delete a transaction. User can only delete their own transactions (enforced by RLS). This action cannot be undone.
+      operationId: deleteTransaction
+      tags:
+        - Transactions
+      security:
+        - supabaseAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Transaction UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Transaction deleted successfully (no content)
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  securitySchemes:
+    supabaseAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Supabase JWT token from auth.getSession()
+
+  schemas:
+    Transaction:
+      type: object
+      required:
+        - id
+        - user_id
+        - amount
+        - description
+        - date
+        - type
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Transaction unique identifier
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        user_id:
+          type: string
+          format: uuid
+          description: Owner user ID
+          example: "987e6543-e21b-32d1-a654-426614174999"
+        amount:
+          type: number
+          format: decimal
+          minimum: 0.01
+          maximum: 999999999.99
+          description: Transaction amount (always positive, with up to 2 decimal places)
+          example: 125.50
+        description:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: User-provided description
+          example: "Grocery shopping at Whole Foods"
+        date:
+          type: string
+          format: date-time
+          description: Transaction date in ISO 8601 format (UTC)
+          example: "2026-02-11T10:30:00Z"
+        type:
+          type: string
+          enum: [income, expense]
+          description: Transaction type
+          example: "expense"
+        category_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Associated category ID (null if uncategorized)
+          example: "456e7890-e12b-34d5-a678-426614174111"
+        category:
+          $ref: '#/components/schemas/CategorySummary'
+          nullable: true
+          description: Category details (included in responses, not in requests)
+        created_at:
+          type: string
+          format: date-time
+          description: Creation timestamp
+          example: "2026-02-11T10:30:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: Last update timestamp
+          example: "2026-02-11T10:30:00Z"
+
+    TransactionCreate:
+      type: object
+      required:
+        - amount
+        - description
+        - date
+        - type
+      properties:
+        amount:
+          type: number
+          format: decimal
+          minimum: 0.01
+          maximum: 999999999.99
+          description: Transaction amount (positive number with up to 2 decimal places)
+          example: 125.50
+        description:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: Transaction description
+          example: "Grocery shopping at Whole Foods"
+        date:
+          type: string
+          format: date-time
+          description: Transaction date (ISO 8601 format). Defaults to current time if not provided.
+          example: "2026-02-11T10:30:00Z"
+        type:
+          type: string
+          enum: [income, expense]
+          description: Transaction type
+          example: "expense"
+        category_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Category UUID (optional, null for uncategorized)
+          example: "456e7890-e12b-34d5-a678-426614174111"
+
+    TransactionUpdate:
+      type: object
+      properties:
+        amount:
+          type: number
+          format: decimal
+          minimum: 0.01
+          maximum: 999999999.99
+          description: Updated transaction amount
+          example: 135.75
+        description:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: Updated description
+          example: "Grocery shopping at Whole Foods (updated)"
+        date:
+          type: string
+          format: date-time
+          description: Updated transaction date
+          example: "2026-02-11T10:30:00Z"
+        type:
+          type: string
+          enum: [income, expense]
+          description: Updated transaction type
+          example: "expense"
+        category_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Updated category UUID (set to null to remove category)
+          example: "456e7890-e12b-34d5-a678-426614174111"
+
+    CategorySummary:
+      type: object
+      required:
+        - id
+        - name
+        - color
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Category unique identifier
+          example: "456e7890-e12b-34d5-a678-426614174111"
+        name:
+          type: string
+          description: Category name
+          example: "Food"
+        color:
+          type: string
+          pattern: '^#[0-9A-F]{6}$'
+          description: Category color (hex code)
+          example: "#10B981"
+        icon_id:
+          type: string
+          nullable: true
+          description: Icon identifier for UI rendering
+          example: "shopping-cart"
+
+    Error:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: Error code or type
+          example: "VALIDATION_ERROR"
+        message:
+          type: string
+          description: Human-readable error message
+          example: "Amount must be a positive number with at most 2 decimal places"
+        details:
+          type: object
+          description: Additional error details (field-specific validation errors)
+          additionalProperties: true
+
+  responses:
+    BadRequest:
+      description: Invalid request parameters or validation error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "VALIDATION_ERROR"
+            message: "Amount must be a positive number with at most 2 decimal places"
+            details:
+              amount: ["Must be between 0.01 and 999999999.99"]
+
+    Unauthorized:
+      description: Authentication required or invalid token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "UNAUTHORIZED"
+            message: "Authentication required"
+
+    NotFound:
+      description: Resource not found or user does not have access
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "NOT_FOUND"
+            message: "Transaction not found"
+
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "INTERNAL_SERVER_ERROR"
+            message: "An unexpected error occurred"
